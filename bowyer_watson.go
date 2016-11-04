@@ -1,172 +1,140 @@
-// This package provides an implementation of the bowyer_watson algorithm to create a
-// Delaunay Triangulation.
-// Given a set of points, it will output a set of Triangles
+// Package bowyer_watson provides an implementation of the Bowyer-Watson
+// algorithm to create a Delaunay Triangulation. Given a set of points, it
+// will output a set of Triangles.
 package bowyer_watson
 
 import (
-	"container/list"
-	"fmt"
 	"math"
-	//"sort"
+	"sort"
 )
 
-// Basic x,y coordinate
+// Point represents a basic x,y coordinate.
 type Point struct {
 	X, Y float64
 }
 
+type pointsByX []Point
+
+func (s pointsByX) Len() int           { return len(s) }
+func (s pointsByX) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s pointsByX) Less(i, j int) bool { return s[i].X < s[j].X }
+
+// Triangle contains three points that form a triangle.
 type Triangle struct {
-	A, B, C Point
+	A, B, C         Point
+	center          Point
+	radius, radius2 float64
 }
 
-type Edge struct {
-	a, b Point
+// CalcCircumCircle calculates t's circumcircle and caches the results in t.
+// It must be called before using CircumcircleContains.
+func (t *Triangle) CalcCircumCircle() {
+	ab := sqr(t.A.X) + sqr(t.A.Y)
+	cd := sqr(t.B.X) + sqr(t.B.Y)
+	ef := sqr(t.C.X) + sqr(t.C.Y)
+
+	t.center.X = (ab*(t.C.Y-t.B.Y) + cd*(t.A.Y-t.C.Y) + ef*(t.B.Y-t.A.Y)) / (t.A.X*(t.C.Y-t.B.Y) + t.B.X*(t.A.Y-t.C.Y) + t.C.X*(t.B.Y-t.A.Y)) / 2
+	t.center.Y = (ab*(t.C.X-t.B.X) + cd*(t.A.X-t.C.X) + ef*(t.B.X-t.A.X)) / (t.A.Y*(t.C.X-t.B.X) + t.B.Y*(t.A.X-t.C.X) + t.C.Y*(t.B.X-t.A.X)) / 2
+	t.radius2 = sqr(t.A.X-t.center.X) + sqr(t.A.Y-t.center.Y)
+	t.radius = math.Sqrt(t.radius2)
 }
 
-/////////////////////////////////
-// Implement the sort interface
-/////////////////////////////////
-
-type Sorter []Point
-
-func (p Sorter) Len() int {
-	return len(p)
-}
-
-func (p Sorter) Swap(i, j int) {
-	p[j], p[i] = p[i], p[j]
-}
-
-func (p Sorter) Less(i, j int) bool {
-	return p[i].X < p[j].X || (p[i].X == p[j].X && p[i].Y < p[j].Y)
-}
-
-///////////////////////////////
-
-// Edge method
-// Determines if Edge, e2, is an equivalent edge
-// Return: True if equal
-func (e1 Edge) isEqual(e2 Edge) bool {
-	return (e1.a == e2.a && e1.b == e2.b || e1.a == e2.b && e1.b == e2.a)
-}
-
-// Triangle method
-// Determines if a given Point is contained within the circumcircle of the triangle
-// A circumcircle is the circle whose circumference contains all 3 vertices of a triangle
-// Return: True if point is contained
-func (t Triangle) CircumcircleContains(p Point) bool {
-	var ab = math.Pow(t.A.X, 2) + math.Pow(t.A.Y, 2)
-	var cd = math.Pow(t.B.X, 2) + math.Pow(t.B.Y, 2)
-	var ef = math.Pow(t.C.X, 2) + math.Pow(t.C.Y, 2)
-
-	var circum_x = (ab*(t.C.Y-t.B.Y) + cd*(t.A.Y-t.C.Y) + ef*(t.B.Y-t.A.Y)) / (t.A.X*(t.C.Y-t.B.Y) + t.B.X*(t.A.Y-t.C.Y) + t.C.X*(t.B.Y-t.A.Y)) / 2
-	var circum_y = (ab*(t.C.X-t.B.X) + cd*(t.A.X-t.C.X) + ef*(t.B.X-t.A.X)) / (t.A.Y*(t.C.X-t.B.X) + t.B.Y*(t.A.X-t.C.X) + t.C.Y*(t.B.X-t.A.X)) / 2
-	var circum_radius = math.Sqrt(math.Pow(t.A.X-circum_x, 2) + math.Pow(t.A.Y-circum_y, 2))
-
-	var dist = math.Sqrt(math.Pow(p.X-circum_x, 2) + math.Pow(p.Y-circum_y, 2))
-	return dist <= circum_radius
-}
-
-// Triangle method
-// Determine if one of the Triangle's vertices is the Point p
-// Return: True if the Point is equal to one of the vertices
-func (t Triangle) ContainsPoint(p Point) bool {
+// HasVertex determine if p is one of t's vertices.
+func (t *Triangle) HasVertex(p Point) bool {
 	return t.A == p || t.B == p || t.C == p
 }
 
-// Given an array of points, return an array of triangles of the triangulation
-// Super triangle is a triangle that contains all the points
-// Source for algorithm: paulbourke.net/papers/triangulate
-func DelaunayTriangulation(points []Point, super_triangle Triangle) []Triangle {
-	//sort.Sort(Sorter(points))
-	triangle_list := list.New()
-	triangle_list.PushBack(super_triangle)
+// CircumcircleContains determines if p is contained within the circumcircle
+// of t. A circumcircle is the circle whose circumference contains all 3
+// vertices of a triangle.
+func (t *Triangle) CircumcircleContains(p Point) bool {
+	dist2 := sqr(p.X-t.center.X) + sqr(p.Y-t.center.Y)
+	return dist2 <= t.radius2
+}
 
-	for _, p := range points {
-		edge_list := list.New()
-		remove_triangles := list.New()
+// Edge is a line segment.
+type Edge struct {
+	A, B Point
+}
 
-		if p.X == 0.0 && p.Y == 0.0 {
-			fmt.Println("Zero")
-		}
+// isEqual returns true if e2 is an equivalent edge to e1.
+func (e1 Edge) isEqual(e2 Edge) bool {
+	return (e1.A == e2.A && e1.B == e2.B || e1.A == e2.B && e1.B == e2.A)
+}
 
-		for itr := triangle_list.Front(); itr != nil; itr = itr.Next() {
-			if itr.Value.(Triangle).CircumcircleContains(p) {
-				triangle := itr.Value.(Triangle)
+// DelaunayTriangulation returns the triangles in the Delaunay triangulation
+// of points. All elements of points must lie within super. Source for
+// algorithm: paulbourke.net/papers/triangulate
+func DelaunayTriangulation(points []Point, super Triangle) []Triangle {
+	super.CalcCircumCircle()
+	ts := []Triangle{super}
 
-				var new_edge [3]Edge
+	pts := make([]Point, len(points))
+	copy(pts, points)
+	sort.Sort(pointsByX(pts))
 
-				new_edge[0] = Edge{triangle.A, triangle.B}
-				new_edge[1] = Edge{triangle.A, triangle.C}
-				new_edge[2] = Edge{triangle.B, triangle.C}
+	var result []Triangle
+	var edges []Edge
+	for _, p := range pts {
+		edges = edges[:0]
 
-				remove_triangles.PushBack(itr)
-
-				for i := 0; i < 3; i++ {
-					edge_list.PushBack(new_edge[i])
-				}
+		for i := 0; i < len(ts); {
+			t := &ts[i]
+			if p.X > t.center.X+t.radius {
+				result = append(result, *t)
+				n := len(ts) - 1
+				ts[i] = ts[n]
+				ts = ts[:n]
+			} else if t.CircumcircleContains(p) {
+				edges = append(edges,
+					Edge{t.A, t.B},
+					Edge{t.A, t.C},
+					Edge{t.B, t.C},
+				)
+				n := len(ts) - 1
+				ts[i] = ts[n]
+				ts = ts[:n]
+			} else {
+				i++
 			}
 		}
 
-		for itr := remove_triangles.Front(); itr != nil; itr = itr.Next() {
-			// The iterator points to an element, so dereference and remove from list
-			triangle_list.Remove(itr.Value.(*list.Element))
-		}
-
-		remove_edges := list.New()
-		for jtr := edge_list.Front(); jtr != nil; jtr = jtr.Next() {
-			for itr := jtr.Next(); itr != nil; itr = itr.Next() {
-				left := itr
-				if jtr.Next() == nil {
-					break
+		for j := 0; j < len(edges); j++ {
+			for i := j + 1; i < len(edges); {
+				if !edges[j].isEqual(edges[i]) {
+					i++
+					continue
 				}
-				right := jtr
-				if left.Value.(Edge).isEqual(right.Value.(Edge)) {
-					// Push the *Element onto the list
-					remove_edges.PushBack(left)
-					remove_edges.PushBack(right)
-					fmt.Println("Removing:", left, right)
-				}
+				n := len(edges) - 1
+				edges[i] = edges[n]
+				edges = edges[:n]
 			}
 		}
 
-		for itr := remove_edges.Front(); itr != nil; itr = itr.Next() {
-			// The iterator points to an element, so dereference and remove from list
-			edge_list.Remove(itr.Value.(*list.Element))
-		}
-
-		for itr := edge_list.Front(); itr != nil; itr = itr.Next() {
-			new_triangle := Triangle{itr.Value.(Edge).a, itr.Value.(Edge).b, p}
-			triangle_list.PushBack(new_triangle)
+		for _, e := range edges {
+			t := Triangle{A: e.A, B: e.B, C: p}
+			t.CalcCircumCircle()
+			ts = append(ts, t)
 		}
 	}
 
-	remove_triangles := list.New()
+	result = append(result, ts...)
 
-	//Remove any triangles using the Points of the supertriangle
-	for itr := triangle_list.Front(); itr != nil; itr = itr.Next() {
-		if itr.Value.(Triangle).ContainsPoint(super_triangle.A) ||
-			itr.Value.(Triangle).ContainsPoint(super_triangle.B) ||
-			itr.Value.(Triangle).ContainsPoint(super_triangle.C) {
-
-			// Push the *Element onto the list
-			remove_triangles.PushBack(itr)
+	//Remove any triangles using the Points of the super
+	for i := 0; i < len(result); {
+		t := result[i]
+		if !t.HasVertex(super.A) && !t.HasVertex(super.B) && !t.HasVertex(super.C) {
+			i++
+			continue
 		}
+		n := len(result) - 1
+		result[i] = result[n]
+		result = result[:n]
 	}
 
-	for itr := remove_triangles.Front(); itr != nil; itr = itr.Next() {
-		// The iterator points to an element, so dereference and remove from list
-		triangle_list.Remove(itr.Value.(*list.Element))
-	}
+	return result
+}
 
-	fmt.Println("nTris deluanay:", triangle_list.Len())
-	return_triangles := make([]Triangle, triangle_list.Len(), triangle_list.Len())
-
-	i := 0
-	for itr := triangle_list.Front(); itr != nil; itr = itr.Next() {
-		return_triangles[i] = itr.Value.(Triangle)
-		i++
-	}
-
-	return return_triangles
+func sqr(x float64) float64 {
+	return x * x
 }

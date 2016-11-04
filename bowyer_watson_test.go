@@ -22,31 +22,27 @@ func getRandomPointInCircle(radius float64) (float64, float64) {
 }
 
 func TestDelaunayTriangulation1(t *testing.T) {
-
 	points := make([]Point, pc)
 
-	for i := 0; i < pc; i++ {
+	for i := 0; i < len(points); i++ {
 		x, y := getRandomPointInCircle(5)
 		points[i] = Point{x, y}
 	}
 
-	super_triangle := Triangle{
-		Point{0, 50},
-		Point{50, -50},
-		Point{-50, -50},
+	super := Triangle{
+		A: Point{0, 50},
+		B: Point{50, -50},
+		C: Point{-50, -50},
 	}
 
-	u := DelaunayTriangulation(points, super_triangle)
+	u := DelaunayTriangulation(points, super)
 
-	fmt.Println(u)
+	t.Log(u)
 
 	fmt.Println("number of triangles", len(u))
 }
 
 func TestDelaunayTriangulation2(t *testing.T) {
-
-	fmt.Println("\nTesting edge removal\n")
-
 	N := 4
 	points := make([]Point, N)
 
@@ -55,17 +51,15 @@ func TestDelaunayTriangulation2(t *testing.T) {
 		points[i] = Point{x, y}
 	}
 
-	super_triangle := Triangle{
-		Point{0, 50},
-		Point{50, -50},
-		Point{-50, -50},
+	super := Triangle{
+		A: Point{0, 50},
+		B: Point{50, -50},
+		C: Point{-50, -50},
 	}
 
-	u := DelaunayTriangulation(points, super_triangle)
+	u := DelaunayTriangulation(points, super)
 
-	fmt.Println("number of triangles", len(u))
-
-	if len(u) != 2 {
-		t.Error("To many tris generated")
+	if got, want := len(u), 2; got != want {
+		t.Errorf("#triangles: got %v, want %v", got, want)
 	}
 }
